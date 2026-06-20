@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Viewer</title>
+
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: url("cursor.png") 16 16, auto;
+    }
+
+    body.dragging {
+      cursor: none;
+    }
+
+    /* ───── CLICKABLE CURSOR FIX ───── */
+    a,
+    button,
+    .fab,
+    .close-btn,
+    #canvas {
+      cursor: url("cursor3.png") 16 16, pointer;
+    }
+
+    #canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      touch-action: none;
+      cursor: url("cursor.png") 16 16, grab;
+    }
+
+    body.dragging #canvas {
+      cursor: url("cursor-drag.png") 16 16, grabbing;
+    }
+
+    #image-wrap {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+
+    #bg {
+      display: block;
+      -webkit-user-drag: none;
+      user-drag: none;
+    }
+
+    #zoom-label {
+      position: fixed;
+      bottom: 18px;
+      right: 20px;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      color: rgba(255,255,255,.55);
+      pointer-events: none;
+      z-index: 9998;
+    }
+
+    /* ───── TITLE OVERLAY ───── */
+    #title-overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      background: transparent;
+    }
+
+    #title-overlay img {
+      max-width: 60vw;
+      max-height: 60vh;
+      user-select: none;
+      -webkit-user-drag: none;
+      pointer-events: none;
+    }
+
+    /* ───── FLOATING BUTTONS ───── */
+    #fab-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10000;
+    }
+
+    .fab {
+      width: 56px;
+      height: 56px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      padding: 0;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      opacity: 1;
+    }
+
+    /* FIXED hover (your old scale(2) was too aggressive) */
+    .fab:hover {
+      transform: scale(1.15);
+      opacity: 1;
+    }
+
+    .fab:active {
+      transform: scale(0.95);
+    }
+
+    .fab img {
+      width: 32px;
+      height: 32px;
+      pointer-events: none;
+    }
+
+    /* ───── MODALS ───── */
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20000;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .modal-content {
+      background: #111;
+      color: #fff;
+      padding: 20px;
+      border-radius: 12px;
+      width: min(90vw, 320px);
+      font-family: ui-monospace, monospace;
+    }
+
+    .modal-content h2 {
+      margin-bottom: 10px;
+    }
+
+    .modal-content p {
+      margin: 6px 0;
+      font-size: 13px;
+      opacity: 0.85;
+    }
+
+    .modal-content a {
+      color: #7cc7ff;
+      text-decoration: none;
+    }
+
+    .modal-content a:hover {
+      text-decoration: underline;
+    }
+
+    .close-btn {
+      margin-top: 12px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      background: #333;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- TITLE -->
+<div id="title-overlay">
+  <img src="title.png" alt="Title" />
+</div>
+
+<!-- VIEWER -->
+<div id="canvas">
+  <div id="image-wrap">
+    <img id="bg" src="bg.jpg" draggable="false" />
+  </div>
+</div>
+
+<div id="zoom-label">100%</div>
+
+<!-- FLOATING BUTTONS -->
+<div id="fab-container">
+  <button id="contact-btn" class="fab">
+    <img src="contact.png" alt="About" />
+  </button>
+
+  <button id="info-btn" class="fab">
+    <img src="howto.png" alt="Info" />
+  </button>
+</div>
+
+<!-- CONTACT MODAL -->
+<div id="contact-modal" class="modal hidden">
+  <div class="modal-content">
+    <h2>About</h2>
+    <p>Started this sketchbook (103 pages) on the 18th of May 2022, not quite sure when it ended but I think it was sometime in early 2023. I will be updating with sketches I've made since, on a new spread</p>
+
+    <p>
+      Instagram:
+      <a href="https://www.instagram.com/fr3shbandaid/" target="_blank" rel="noopener noreferrer">
+        @fr3shbandaid
+      </a>
+    </p>
+
+    <button class="close-btn" data-close="contact-modal">Close</button>
+  </div>
+</div>
+
+<!-- INFO MODAL -->
+<div id="info-modal" class="modal hidden">
+  <div class="modal-content">
+    <h2>How to Use</h2>
+    <p>• Click and drag to move around</p>
+    <p>• Scroll / pinch to zoom</p>
+    <button class="close-btn" data-close="info-modal">Close</button>
+  </div>
+</div>
+
+<script>
+(function () {
+
+  /* ───── TITLE OVERLAY ───── */
+  const overlay = document.getElementById('title-overlay');
+  let overlayActive = true;
+
+  function hideOverlay() {
+    if (!overlayActive) return;
+    overlayActive = false;
+    overlay.style.display = 'none';
+  }
+
+  setTimeout(hideOverlay, 3000);
+  overlay.addEventListener('click', hideOverlay);
+  window.addEventListener('keydown', hideOverlay);
+
+  /* ───── VIEWER ───── */
+  const wrap = document.getElementById('image-wrap');
+  const img = document.getElementById('bg');
+  const canvas = document.getElementById('canvas');
+  const zoomLbl = document.getElementById('zoom-label');
+
+  const IMG_W = 8000;
+  const IMG_H = 5000;
+
+  img.width = IMG_W;
+  img.height = IMG_H;
+
+  let scale = 1;
+  let tx = 0;
+  let ty = 0;
+
+  let minCoverScale = 1;
+  const MAX_SCALE = 20;
+
+  function clamp(v, lo, hi) {
+    return Math.min(Math.max(v, lo), hi);
+  }
+
+  function constrainToBounds() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    const imgW = IMG_W * scale;
+    const imgH = IMG_H * scale;
+
+    if (imgW <= vw) tx = (vw - imgW) / 2;
+    else tx = clamp(tx, vw - imgW, 0);
+
+    if (imgH <= vh) ty = (vh - imgH) / 2;
+    else ty = clamp(ty, vh - imgH, 0);
+  }
+
+  function applyTransform() {
+    constrainToBounds();
+    wrap.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    zoomLbl.textContent = `${Math.round(scale * 100)}%`;
+  }
+
+  function zoomAt(cx, cy, factor) {
+    const newScale = clamp(scale * factor, minCoverScale, MAX_SCALE);
+    if (newScale === scale) return;
+
+    const ix = (cx - tx) / scale;
+    const iy = (cy - ty) / scale;
+
+    scale = newScale;
+
+    tx = cx - ix * scale;
+    ty = cy - iy * scale;
+
+    applyTransform();
+  }
+
+  function fitToScreen() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    minCoverScale = Math.max(vw / IMG_W, vh / IMG_H);
+
+    scale = minCoverScale;
+    tx = (vw - IMG_W * scale) / 2;
+    ty = (vh - IMG_H * scale) / 2;
+
+    applyTransform();
+  }
+
+  img.addEventListener('load', fitToScreen);
+  if (img.complete) fitToScreen();
+  window.addEventListener('resize', fitToScreen);
+
+  /* WHEEL */
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.001));
+  }, { passive: false });
+
+  /* DRAG */
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let baseX = 0, baseY = 0;
+
+  let vx = 0, vy = 0;
+  let lastMoveTime = 0;
+
+  function inertiaLoop() {
+    if (dragging) return;
+
+    vx *= 0.92;
+    vy *= 0.92;
+
+    tx += vx * 16;
+    ty += vy * 16;
+
+    if (Math.abs(vx) < 0.02 && Math.abs(vy) < 0.02) return;
+
+    applyTransform();
+    requestAnimationFrame(inertiaLoop);
+  }
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    baseX = tx;
+    baseY = ty;
+
+    vx = 0;
+    vy = 0;
+    lastMoveTime = performance.now();
+
+    document.body.classList.add('dragging');
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+
+    const now = performance.now();
+    const dt = now - lastMoveTime;
+
+    const nx = baseX + (e.clientX - startX);
+    const ny = baseY + (e.clientY - startY);
+
+    vx = (nx - tx) / (dt || 16);
+    vy = (ny - ty) / (dt || 16);
+
+    tx = nx;
+    ty = ny;
+
+    lastMoveTime = now;
+
+    applyTransform();
+  });
+
+  window.addEventListener('mouseup', () => {
+    dragging = false;
+    document.body.classList.remove('dragging');
+    requestAnimationFrame(inertiaLoop);
+  });
+
+  /* TOUCH PINCH */
+  let touches = {};
+  let lastDist = null;
+
+  function pt(t) { return { x: t.clientX, y: t.clientY }; }
+  function dist(a,b){ return Math.hypot(b.x-a.x,b.y-a.y); }
+  function mid(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches[t.identifier] = pt(t);
+    const pts = Object.values(touches);
+    if (pts.length === 2) lastDist = dist(pts[0], pts[1]);
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (const t of e.changedTouches) touches[t.identifier] = pt(t);
+
+    const pts = Object.values(touches);
+
+    if (pts.length === 2 && lastDist !== null) {
+      const ratio = dist(pts[0], pts[1]) / lastDist;
+      const speed = 1.8;
+
+      zoomAt(mid(pts[0], pts[1]).x, mid(pts[0], pts[1]).y, Math.pow(ratio, speed));
+      lastDist = dist(pts[0], pts[1]);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    for (const t of e.changedTouches) delete touches[t.identifier];
+    const pts = Object.values(touches);
+    lastDist = pts.length === 2 ? dist(pts[0], pts[1]) : null;
+  }, { passive: false });
+
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+  /* MODALS */
+  const contactBtn = document.getElementById('contact-btn');
+  const infoBtn = document.getElementById('info-btn');
+
+  const contactModal = document.getElementById('contact-modal');
+  const infoModal = document.getElementById('info-modal');
+
+  function openModal(m){ m.classList.remove('hidden'); }
+  function closeModal(m){ m.classList.add('hidden'); }
+
+  contactBtn.onclick = () => openModal(contactModal);
+  infoBtn.onclick = () => openModal(infoModal);
+
+  document.querySelectorAll('.close-btn').forEach(btn => {
+    btn.onclick = () => closeModal(document.getElementById(btn.dataset.close));
+  });
+
+  [contactModal, infoModal].forEach(m => {
+    m.onclick = (e) => { if (e.target === m) closeModal(m); };
+  });
+
+})();
+</script>
+
+</body>
+</html>
