@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Image Viewer</title>
+  <title>Karm's Sketchbook 22</title>
 
   <style>
     *, *::before, *::after {
@@ -258,6 +258,7 @@
     <h2>How to Use</h2>
     <p>• Swipe to pan around</p>
     <p>• Pinch to zoom in and out</p>
+    <p>• Double-tap to zoom in / out</p>
     <button class="close-btn" data-close="info-modal">Close</button>
   </div>
 </div>
@@ -471,10 +472,12 @@
       touchVx     = 0;
       touchVy     = 0;
       lastTouchTime = performance.now();
+      tapMoved    = false;  /* reset movement flag for double-tap */
     }
 
     if (pts.length === 2) {
       lastPinchDist = touchDist(pts);
+      tapMoved = true; /* pinch gesture — disqualify double-tap */
     }
   }, { passive: false });
 
@@ -493,6 +496,13 @@
       const cx  = pts[0].x;
       const cy  = pts[0].y;
       const dt  = now - lastTouchTime || 16;
+
+      /* if finger moved more than 6px, it's a drag — not a tap */
+      if (!tapMoved) {
+        const mdx = cx - touchStartX;
+        const mdy = cy - touchStartY;
+        if (Math.hypot(mdx, mdy) > 6) tapMoved = true;
+      }
 
       const nx = baseTx + (cx - touchStartX);
       const ny = baseTy + (cy - touchStartY);
@@ -540,8 +550,73 @@
     requestAnimationFrame(touchInertiaLoop);
   }
 
+  /* ───── DOUBLE-TAP TO ZOOM ───── */
+  const DOUBLE_TAP_MS      = 300;   /* max ms between taps to count as double  */
+  const DOUBLE_TAP_PX      = 30;    /* max finger movement allowed between taps */
+  const DOUBLE_TAP_ZOOM_IN = 3.0;   /* scale to zoom into on first double-tap  */
+  const SMOOTH_DURATION    = 300;   /* ms for animated zoom transition          */
+
+  let lastTapTime = 0;
+  let lastTapX    = 0;
+  let lastTapY    = 0;
+  let tapMoved    = false;
+
+  /* Smooth animated zoom towards a target scale/translate */
+  function smoothZoomTo(targetScale, targetTx, targetTy, duration) {
+    const startScale = scale;
+    const startTx    = tx;
+    const startTy    = ty;
+    const startTime  = performance.now();
+
+    function easeInOut(t) {
+      return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    }
+
+    function animFrame(now) {
+      const elapsed  = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased    = easeInOut(progress);
+
+      scale = startScale + (targetScale - startScale) * eased;
+      tx    = startTx    + (targetTx    - startTx)    * eased;
+      ty    = startTy    + (targetTy    - startTy)    * eased;
+
+      applyTransform();
+
+      if (progress < 1) requestAnimationFrame(animFrame);
+    }
+
+    requestAnimationFrame(animFrame);
+  }
+
+  function handleDoubleTap(tapX, tapY) {
+    const isZoomedIn = scale > minCoverScale * 1.5;
+
+    if (isZoomedIn) {
+      /* zoom back out to fit */
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const fitTx = (vw - IMG_W * minCoverScale) / 2;
+      const fitTy = (vh - IMG_H * minCoverScale) / 2;
+      smoothZoomTo(minCoverScale, fitTx, fitTy, SMOOTH_DURATION);
+    } else {
+      /* zoom into the tap point */
+      const targetScale = clamp(DOUBLE_TAP_ZOOM_IN, minCoverScale, MAX_SCALE);
+      const ix = (tapX - tx) / scale;
+      const iy = (tapY - ty) / scale;
+      const targetTx = tapX - ix * targetScale;
+      const targetTy = tapY - iy * targetScale;
+      smoothZoomTo(targetScale, targetTx, targetTy, SMOOTH_DURATION);
+    }
+  }
+
   canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
+
+    const now = performance.now();
+
+    /* Record the lifted touch before deleting */
+    const liftedTouch = e.changedTouches[0];
 
     for (const t of e.changedTouches) {
       delete activeTouches[t.identifier];
@@ -554,6 +629,24 @@
     }
 
     if (pts.length === 0) {
+      /* ── Double-tap detection (single-finger lifts only) ── */
+      if (e.changedTouches.length === 1 && !tapMoved) {
+        const dx   = liftedTouch.clientX - lastTapX;
+        const dy   = liftedTouch.clientY - lastTapY;
+        const dist = Math.hypot(dx, dy);
+        const gap  = now - lastTapTime;
+
+        if (gap < DOUBLE_TAP_MS && dist < DOUBLE_TAP_PX) {
+          /* confirmed double-tap */
+          handleDoubleTap(liftedTouch.clientX, liftedTouch.clientY);
+          lastTapTime = 0; /* reset so triple-tap doesn't re-trigger */
+        } else {
+          lastTapTime = now;
+          lastTapX    = liftedTouch.clientX;
+          lastTapY    = liftedTouch.clientY;
+        }
+      }
+
       /* all fingers lifted — kick off inertia */
       requestAnimationFrame(touchInertiaLoop);
     }
@@ -612,7 +705,7 @@
   /* ── Tuning ── */
   const SPAWN_INTERVAL_MS = 110;   /* min ms between spawns            */
   const SPAWN_CHANCE      = 0.65;  /* probability per attempt          */
-  const BASE_SIZE         = 18;    /*   */
+  const BASE_SIZE         = 18;    /* CHANGE 1: ~1.5× bigger (was 18)  */
   const SIZE_JITTER       = 14;    /* CHANGE 1: scaled up (was 14)     */
   const GRAVITY           = 0.07;
   const INITIAL_VY_RANGE  = [-1.8, -0.4];
