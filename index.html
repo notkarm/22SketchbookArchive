@@ -35,6 +35,14 @@
       cursor: url("cursor3.png") 16 16, pointer;
     }
 
+    /* ───── CHANGE 2: cursor3 on ALL interactive elements ───── */
+    a:hover,
+    button:hover,
+    .fab:hover,
+    .close-btn:hover {
+      cursor: url("cursor3.png") 16 16, pointer;
+    }
+
     #canvas {
       position: fixed;
       inset: 0;
@@ -109,7 +117,7 @@
       height: 56px;
       border: none;
       background: transparent;
-      cursor: pointer;
+      cursor: url("cursor3.png") 16 16, pointer;
 
       display: flex;
       align-items: center;
@@ -120,10 +128,10 @@
       opacity: 1;
     }
 
-    /* FIXED hover (your old scale(2) was too aggressive) */
     .fab:hover {
       transform: scale(1.15);
       opacity: 1;
+      cursor: url("cursor3.png") 16 16, pointer;
     }
 
     .fab:active {
@@ -186,7 +194,16 @@
       border-radius: 6px;
       background: #333;
       color: white;
-      cursor: pointer;
+      cursor: url("cursor3.png") 16 16, pointer;
+    }
+
+    /* ───── SPARK PARTICLES ───── */
+    .spark {
+      position: fixed;
+      pointer-events: none;
+      z-index: 99999;
+      will-change: transform, opacity;
+      user-select: none;
     }
   </style>
 </head>
@@ -239,8 +256,8 @@
 <div id="info-modal" class="modal hidden">
   <div class="modal-content">
     <h2>How to Use</h2>
-    <p>• Click and drag to move around</p>
-    <p>• Scroll / pinch to zoom</p>
+    <p>• Swipe to pan around</p>
+    <p>• Pinch to zoom in and out</p>
     <button class="close-btn" data-close="info-modal">Close</button>
   </div>
 </div>
@@ -260,18 +277,19 @@
 
   setTimeout(hideOverlay, 3000);
   overlay.addEventListener('click', hideOverlay);
+  overlay.addEventListener('touchend', hideOverlay);
   window.addEventListener('keydown', hideOverlay);
 
   /* ───── VIEWER ───── */
   const wrap = document.getElementById('image-wrap');
-  const img = document.getElementById('bg');
+  const img  = document.getElementById('bg');
   const canvas = document.getElementById('canvas');
   const zoomLbl = document.getElementById('zoom-label');
 
   const IMG_W = 8000;
   const IMG_H = 5000;
 
-  img.width = IMG_W;
+  img.width  = IMG_W;
   img.height = IMG_H;
 
   let scale = 1;
@@ -302,7 +320,7 @@
   function applyTransform() {
     constrainToBounds();
     wrap.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
-    zoomLbl.textContent = `${Math.round(scale * 100)}%`;
+    zoomLbl.textContent  = `${Math.round(scale * 100)}%`;
   }
 
   function zoomAt(cx, cy, factor) {
@@ -337,16 +355,16 @@
   if (img.complete) fitToScreen();
   window.addEventListener('resize', fitToScreen);
 
-  /* WHEEL */
+  /* ───── WHEEL ZOOM ───── */
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.001));
   }, { passive: false });
 
-  /* DRAG */
+  /* ───── MOUSE DRAG ───── */
   let dragging = false;
   let startX = 0, startY = 0;
-  let baseX = 0, baseY = 0;
+  let baseX  = 0, baseY  = 0;
 
   let vx = 0, vy = 0;
   let lastMoveTime = 0;
@@ -372,8 +390,8 @@
     dragging = true;
     startX = e.clientX;
     startY = e.clientY;
-    baseX = tx;
-    baseY = ty;
+    baseX  = tx;
+    baseY  = ty;
 
     vx = 0;
     vy = 0;
@@ -386,7 +404,7 @@
     if (!dragging) return;
 
     const now = performance.now();
-    const dt = now - lastMoveTime;
+    const dt  = now - lastMoveTime;
 
     const nx = baseX + (e.clientX - startX);
     const ny = baseY + (e.clientY - startY);
@@ -408,56 +426,164 @@
     requestAnimationFrame(inertiaLoop);
   });
 
-  /* TOUCH PINCH */
-  let touches = {};
-  let lastDist = null;
+  /* ───── TOUCH: PAN + PINCH (CHANGE 3 — fixed single-finger drag) ───── */
+  let activeTouches = {};   /* id → {x, y} */
+  let lastPinchDist = null;
+  let touchStartX   = 0;
+  let touchStartY   = 0;
+  let baseTx        = 0;
+  let baseTy        = 0;
+  let touchVx       = 0;
+  let touchVy       = 0;
+  let lastTouchTime = 0;
+  let prevTouchX    = 0;
+  let prevTouchY    = 0;
 
-  function pt(t) { return { x: t.clientX, y: t.clientY }; }
-  function dist(a,b){ return Math.hypot(b.x-a.x,b.y-a.y); }
-  function mid(a,b){ return { x:(a.x+b.x)/2, y:(a.y+b.y)/2 }; }
+  function getTouchPoints() {
+    return Object.values(activeTouches);
+  }
+
+  function touchDist(pts) {
+    return Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+  }
+
+  function touchMid(pts) {
+    return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  }
 
   canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    for (const t of e.changedTouches) touches[t.identifier] = pt(t);
-    const pts = Object.values(touches);
-    if (pts.length === 2) lastDist = dist(pts[0], pts[1]);
+
+    for (const t of e.changedTouches) {
+      activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
+    }
+
+    const pts = getTouchPoints();
+
+    if (pts.length === 1) {
+      /* single finger — start pan */
+      touchStartX = pts[0].x;
+      touchStartY = pts[0].y;
+      prevTouchX  = pts[0].x;
+      prevTouchY  = pts[0].y;
+      baseTx      = tx;
+      baseTy      = ty;
+      touchVx     = 0;
+      touchVy     = 0;
+      lastTouchTime = performance.now();
+    }
+
+    if (pts.length === 2) {
+      lastPinchDist = touchDist(pts);
+    }
   }, { passive: false });
 
   canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
-    for (const t of e.changedTouches) touches[t.identifier] = pt(t);
 
-    const pts = Object.values(touches);
+    for (const t of e.changedTouches) {
+      activeTouches[t.identifier] = { x: t.clientX, y: t.clientY };
+    }
 
-    if (pts.length === 2 && lastDist !== null) {
-      const ratio = dist(pts[0], pts[1]) / lastDist;
-      const speed = 1.8;
+    const pts = getTouchPoints();
+    const now = performance.now();
 
-      zoomAt(mid(pts[0], pts[1]).x, mid(pts[0], pts[1]).y, Math.pow(ratio, speed));
-      lastDist = dist(pts[0], pts[1]);
+    if (pts.length === 1) {
+      /* single-finger pan */
+      const cx  = pts[0].x;
+      const cy  = pts[0].y;
+      const dt  = now - lastTouchTime || 16;
+
+      const nx = baseTx + (cx - touchStartX);
+      const ny = baseTy + (cy - touchStartY);
+
+      touchVx = (nx - tx) / dt;
+      touchVy = (ny - ty) / dt;
+
+      tx = nx;
+      ty = ny;
+
+      prevTouchX    = cx;
+      prevTouchY    = cy;
+      lastTouchTime = now;
+
+      applyTransform();
+    }
+
+    if (pts.length === 2 && lastPinchDist !== null) {
+      /* two-finger pinch zoom */
+      const newDist = touchDist(pts);
+      const ratio   = newDist / lastPinchDist;
+      const m       = touchMid(pts);
+
+      zoomAt(m.x, m.y, Math.pow(ratio, 1.8));
+      lastPinchDist = newDist;
+
+      /* also pan from midpoint movement */
+      const dt = now - lastTouchTime || 16;
+      touchVx = 0;
+      touchVy = 0;
+      lastTouchTime = now;
     }
   }, { passive: false });
 
+  function touchInertiaLoop() {
+    touchVx *= 0.92;
+    touchVy *= 0.92;
+
+    tx += touchVx * 16;
+    ty += touchVy * 16;
+
+    if (Math.abs(touchVx) < 0.02 && Math.abs(touchVy) < 0.02) return;
+
+    applyTransform();
+    requestAnimationFrame(touchInertiaLoop);
+  }
+
   canvas.addEventListener('touchend', (e) => {
-    for (const t of e.changedTouches) delete touches[t.identifier];
-    const pts = Object.values(touches);
-    lastDist = pts.length === 2 ? dist(pts[0], pts[1]) : null;
+    e.preventDefault();
+
+    for (const t of e.changedTouches) {
+      delete activeTouches[t.identifier];
+    }
+
+    const pts = getTouchPoints();
+
+    if (pts.length < 2) {
+      lastPinchDist = null;
+    }
+
+    if (pts.length === 0) {
+      /* all fingers lifted — kick off inertia */
+      requestAnimationFrame(touchInertiaLoop);
+    }
+
+    if (pts.length === 1) {
+      /* went from 2 fingers to 1 — reset pan base */
+      touchStartX = pts[0].x;
+      touchStartY = pts[0].y;
+      baseTx      = tx;
+      baseTy      = ty;
+      touchVx     = 0;
+      touchVy     = 0;
+      lastTouchTime = performance.now();
+    }
   }, { passive: false });
 
   canvas.addEventListener('contextmenu', e => e.preventDefault());
 
-  /* MODALS */
+  /* ───── MODALS ───── */
   const contactBtn = document.getElementById('contact-btn');
-  const infoBtn = document.getElementById('info-btn');
+  const infoBtn    = document.getElementById('info-btn');
 
   const contactModal = document.getElementById('contact-modal');
-  const infoModal = document.getElementById('info-modal');
+  const infoModal    = document.getElementById('info-modal');
 
-  function openModal(m){ m.classList.remove('hidden'); }
-  function closeModal(m){ m.classList.add('hidden'); }
+  function openModal(m)  { m.classList.remove('hidden'); }
+  function closeModal(m) { m.classList.add('hidden'); }
 
   contactBtn.onclick = () => openModal(contactModal);
-  infoBtn.onclick = () => openModal(infoModal);
+  infoBtn.onclick    = () => openModal(infoModal);
 
   document.querySelectorAll('.close-btn').forEach(btn => {
     btn.onclick = () => closeModal(document.getElementById(btn.dataset.close));
@@ -466,6 +592,129 @@
   [contactModal, infoModal].forEach(m => {
     m.onclick = (e) => { if (e.target === m) closeModal(m); };
   });
+
+})();
+</script>
+
+<!-- ───── SPARK PARTICLE SYSTEM (mouse + touch, CHANGE 1 + 4) ───── -->
+<script>
+(function () {
+
+  const STAR_SRCS = ['star1.png', 'star2.png', 'star3.png', 'star4.png'];
+
+  /* Preload */
+  const starImgs = STAR_SRCS.map(src => {
+    const i = new Image();
+    i.src = src;
+    return i;
+  });
+
+  /* ── Tuning ── */
+  const SPAWN_INTERVAL_MS = 110;   /* min ms between spawns            */
+  const SPAWN_CHANCE      = 0.65;  /* probability per attempt          */
+  const BASE_SIZE         = 18;    /*   */
+  const SIZE_JITTER       = 14;    /* CHANGE 1: scaled up (was 14)     */
+  const GRAVITY           = 0.07;
+  const INITIAL_VY_RANGE  = [-1.8, -0.4];
+  const INITIAL_VX_RANGE  = [-1.2,  1.2];
+  const FADE_DURATION_MS  = 900;
+  const ROTATION_SPEED    = 2.5;
+
+  const particles  = [];
+  let lastSpawnTime = 0;
+  let rafRunning    = false;
+
+  function rand(min, max) { return min + Math.random() * (max - min); }
+
+  function spawnSpark(x, y) {
+    const el   = document.createElement('img');
+    el.className = 'spark';
+    el.src = starImgs[Math.floor(Math.random() * starImgs.length)].src;
+
+    const size = BASE_SIZE + rand(-SIZE_JITTER / 2, SIZE_JITTER);
+    el.style.width  = size + 'px';
+    el.style.height = size + 'px';
+    el.style.left   = (x - size / 2) + 'px';
+    el.style.top    = (y - size / 2) + 'px';
+
+    document.body.appendChild(el);
+
+    particles.push({
+      el,
+      x: x - size / 2,
+      y: y - size / 2,
+      size,
+      vx: rand(...INITIAL_VX_RANGE),
+      vy: rand(...INITIAL_VY_RANGE),
+      rotation: rand(0, 360),
+      rotSpeed: rand(-ROTATION_SPEED, ROTATION_SPEED),
+      born: performance.now(),
+      life: rand(FADE_DURATION_MS * 0.75, FADE_DURATION_MS * 1.25),
+    });
+  }
+
+  function tick(now) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p        = particles[i];
+      const age      = now - p.born;
+      const progress = age / p.life;
+
+      if (progress >= 1) {
+        p.el.remove();
+        particles.splice(i, 1);
+        continue;
+      }
+
+      p.vy += GRAVITY;
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.rotation += p.rotSpeed;
+
+      const opacity     = progress < 0.3 ? 1 : 1 - ((progress - 0.3) / 0.7);
+      const scaleFactor = 1 - progress * 0.35;
+
+      p.el.style.transform = `rotate(${p.rotation}deg) scale(${scaleFactor})`;
+      p.el.style.left      = p.x + 'px';
+      p.el.style.top       = p.y + 'px';
+      p.el.style.opacity   = opacity.toFixed(3);
+    }
+
+    if (particles.length > 0) {
+      requestAnimationFrame(tick);
+    } else {
+      rafRunning = false;
+    }
+  }
+
+  function ensureLoop() {
+    if (!rafRunning) {
+      rafRunning = true;
+      requestAnimationFrame(tick);
+    }
+  }
+
+  function trySpawn(x, y) {
+    const now = performance.now();
+    if (now - lastSpawnTime < SPAWN_INTERVAL_MS) return;
+    if (Math.random() > SPAWN_CHANCE) return;
+    lastSpawnTime = now;
+    spawnSpark(x + rand(-8, 8), y + rand(-8, 8));
+    ensureLoop();
+  }
+
+  /* ── MOUSE (desktop) ── */
+  window.addEventListener('mousemove', (e) => {
+    trySpawn(e.clientX, e.clientY);
+  });
+
+  /* ── TOUCH (mobile) — CHANGE 4: sparks during pan ── */
+  window.addEventListener('touchmove', (e) => {
+    /* Use first touch point for spark position */
+    if (e.touches.length > 0) {
+      const t = e.touches[0];
+      trySpawn(t.clientX, t.clientY);
+    }
+  }, { passive: true });
 
 })();
 </script>
