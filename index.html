@@ -282,7 +282,7 @@
   let ty = 0;
 
   let minCoverScale = 1;
-  const MAX_SCALE = 20;
+  const MAX_SCALE = 50;
 
   function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
 
@@ -330,11 +330,22 @@
   if (img.complete) fitToScreen();
   window.addEventListener('resize', fitToScreen);
 
-  /* ───── WHEEL ZOOM ───── */
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.001));
-  }, { passive: false });
+/* ───── WHEEL / TRACKPAD ZOOM ───── */
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+
+  // Much higher sensitivity for touchpad pinch
+  const sensitivity = e.ctrlKey
+    ? 0.02   // trackpad pinch
+    : 0.003; // mouse wheel
+
+  zoomAt(
+    e.clientX,
+    e.clientY,
+    Math.exp(-e.deltaY * sensitivity)
+  );
+}, { passive: false });
+
 
   /* ───── MOUSE DRAG ───── */
   let dragging = false;
